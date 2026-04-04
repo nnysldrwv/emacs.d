@@ -58,3 +58,21 @@ site-lisp/package/
 /projects
 /forge-*.sqlite
 /projectile.cache
+
+# === Sean's additions ===
+# Secrets (init-preload-local contains API keys)
+/lisp/init-preload-local.el
+# Runtime data
+/backups/
+/auto-saves/
+/auto-save-list/
+/org-persist/
+/persist/
+/request/
+/org-roam.db
+/bookmarks
+/places
+/.emacs.desktop.lock
+/.org-generic-id-locations
+/oauth2-auto.plist
+*.sqlite
