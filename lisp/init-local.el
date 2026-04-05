@@ -493,21 +493,21 @@ Skip files under ~/org/collections/ to preserve records."
 ;;  8. Org visual enhancements
 ;; ============================================================
 
-;; --- org-modern ---
-(when (maybe-require-package 'org-modern)
-  (add-hook 'org-mode-hook 'org-modern-mode)
-  (add-hook 'org-agenda-finalize-hook 'org-modern-agenda)
-  (setq org-modern-star '("◉" "○" "◈" "◇" "▣"))
-  (setq org-modern-todo-faces
-        '(("TODO"      :background "#0031a9" :foreground "#ffffff")
-          ("NEXT"      :background "#d3303a" :foreground "#ffffff")
-          ("WAITING"   :background "#884900" :foreground "#ffffff")
-          ("HOLD"      :background "#70508f" :foreground "#ffffff")
-          ("DONE"      :background "#006800" :foreground "#ffffff")
-          ("CANCELLED" :background "#8f8f8f" :foreground "#ffffff")))
-  (setq org-modern-table nil)
-  (setq org-modern-list '((?- . "•") (?+ . "◦")))
-  (setq org-modern-block-fringe nil))
+;; --- org-modern (disabled) ---
+;; (when (maybe-require-package 'org-modern)
+;;   (add-hook 'org-mode-hook 'org-modern-mode)
+;;   (add-hook 'org-agenda-finalize-hook 'org-modern-agenda)
+;;   (setq org-modern-star '("◉" "○" "◈" "◇" "▣"))
+;;   (setq org-modern-todo-faces
+;;         '(("TODO"      :background "#0031a9" :foreground "#ffffff")
+;;           ("NEXT"      :background "#d3303a" :foreground "#ffffff")
+;;           ("WAITING"   :background "#884900" :foreground "#ffffff")
+;;           ("HOLD"      :background "#70508f" :foreground "#ffffff")
+;;           ("DONE"      :background "#006800" :foreground "#ffffff")
+;;           ("CANCELLED" :background "#8f8f8f" :foreground "#ffffff")))
+;;   (setq org-modern-table nil)
+;;   (setq org-modern-list '((?- . "•") (?+ . "◦")))
+;;   (setq org-modern-block-fringe nil))
 
 ;; --- org-appear ---
 (when (maybe-require-package 'org-appear)
