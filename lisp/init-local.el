@@ -8,7 +8,7 @@
 ;;; Code:
 
 ;; ============================================================
-;;  1. CJK / Emoji fonts (Windows & macOS)
+;;  1. Fonts — Maple Mono NF CN (中英等宽，自带 CJK + Nerd Font)
 ;; ============================================================
 
 (defun my/first-available-font (candidates)
@@ -20,17 +20,28 @@
     nil))
 
 (when (display-graphic-p)
-  (let* ((cjk-font (my/first-available-font
-                     '("LXGW WenKai Mono" "Sarasa Mono SC" "PingFang SC" "Heiti SC")))
-         (emoji-font (my/first-available-font
-                      '("Segoe UI Emoji" "Apple Color Emoji" "Noto Color Emoji")))
-         (symbol-font (my/first-available-font
-                       '("Segoe UI Symbol" "Apple Symbols" "Symbola"))))
-    (when cjk-font
-      (dolist (charset '(kana han cjk-misc bopomofo))
-        (set-fontset-font t charset (font-spec :family cjk-font)))
-      (when (string= cjk-font "LXGW WenKai Mono")
-        (setq face-font-rescale-alist '(("LXGW WenKai Mono" . 1.306)))))
+  ;; Default font — prefer Maple Mono (built-in CJK, no rescale needed)
+  (let ((default-font (my/first-available-font
+                       '("Maple Mono NF CN"
+                         "Cascadia Code" "SF Mono" "Menlo" "Consolas"))))
+    (when default-font
+      (set-face-attribute 'default nil :family default-font :height 140)))
+
+  ;; CJK fallback — only needed if default font lacks CJK coverage
+  (unless (find-font (font-spec :family "Maple Mono NF CN"))
+    (let ((cjk-font (my/first-available-font
+                     '("霞鹜文楷等宽" "等距更纱黑体 SC"
+                       "LXGW WenKai Mono" "Sarasa Mono SC"
+                       "Noto Sans SC" "Microsoft YaHei UI"))))
+      (when cjk-font
+        (dolist (charset '(kana han cjk-misc bopomofo))
+          (set-fontset-font t charset (font-spec :family cjk-font))))))
+
+  ;; Emoji & Symbol
+  (let ((emoji-font (my/first-available-font
+                     '("Segoe UI Emoji" "Apple Color Emoji" "Noto Color Emoji")))
+        (symbol-font (my/first-available-font
+                      '("Segoe UI Symbol" "Apple Symbols" "Symbola"))))
     (when emoji-font
       (set-fontset-font t 'emoji (font-spec :family emoji-font) nil 'prepend))
     (when symbol-font
