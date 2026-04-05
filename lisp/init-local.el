@@ -70,7 +70,8 @@
 ;; ---- Windows-specific performance ----
 (when (eq system-type 'windows-nt)
   ;; Taskbar: set AppUserModelID so pinned shortcut merges with window
-  (when (fboundp 'w32-set-app-user-model-id)
+  (add-to-list 'load-path (expand-file-name "modules" user-emacs-directory))
+  (when (require 'w32-appid nil t)
     (w32-set-app-user-model-id "GNU.Emacs"))
 
   ;; VC / Git — #1 cause of sluggishness on Windows
