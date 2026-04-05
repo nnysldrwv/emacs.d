@@ -1,4 +1,4 @@
-;;; init-local.el --- Sean's personal customizations on top of purcell/emacs.d -*- lexical-binding: t; -*-
+/face-remap-add-relative;;; init-local.el --- Sean's personal customizations on top of purcell/emacs.d -*- lexical-binding: t; -*-
 ;;; Commentary:
 ;;
 ;; This file is loaded at the end of init.el (purcell convention).
@@ -175,7 +175,8 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   (with-eval-after-load 'treemacs
     ;; Smaller font in treemacs buffer (0.85× default size)
     (defun my/treemacs-set-small-font ()
-      (face-remap-add-relative 'default :height 0.85))
+      (require 'face-remap nil t)
+      (face-remap-add-relative 'default :height 0.75))
     (add-hook 'treemacs-mode-hook #'my/treemacs-set-small-font)
 
     (define-key treemacs-mode-map [mouse-1]
@@ -646,8 +647,8 @@ Skip files under ~/org/collections/ to preserve records."
                  (let ((code (process-exit-status proc)))
                    (message
                     (if (eq code 0)
-                        (format "arya-sync: %s done" mode-arg)
-                      (format "arya-sync failed (%s). See %s" code arya-sync--buffer-name)))))))))))
+                        /(format "arya-sync: %s done" mode-arg)
+                        (format "arya-sync failed (%s). See %s" code arya-sync--buffer-name)))))))))))
 
 (defun arya-sync-pull-now ()
   "Pull latest config from git."
