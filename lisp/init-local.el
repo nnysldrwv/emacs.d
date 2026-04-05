@@ -292,7 +292,10 @@ When called from `after-make-frame-functions', FRAME is the new frame."
            "* TODO [[%^{URL}][%^{Title}]]\n:PROPERTIES:\n:CREATED: %U\n:END:\n%?" :empty-lines 1)
           ("m" "Movie" entry (file+headline "~/org/collections/media.org" "观影记录")
            "* %^{片名}\n:PROPERTIES:\n:评分: %^{评分|⭐⭐⭐|⭐⭐⭐⭐|⭐⭐⭐⭐⭐|⭐⭐|⭐}\n:END:\n%U\n%?"
-           :empty-lines 1)))
+           :empty-lines 1)
+          ("w" "Web article" plain (function my/capture-web-article-target)
+           "%?"
+           :empty-lines 1 :jump-to-captured t)))
 
   ;; ---- Refile targets ----
   (setq my/org-references-files
@@ -542,11 +545,9 @@ Skip files under ~/org/collections/ to preserve records."
                               "#+title: ${title}\n#+date: %U\n#+filetags: :fleeting:\n\n")
            :unnarrowed t)))
 
-  ;; ---- Web article → references/ (one-key from clipboard URL) ----
-  (defun my/capture-web-article ()
-    "Capture a web article into ~/org/references/.
-Reads URL from clipboard, fetches title, creates a structured note."
-    (interactive)
+  ;; ---- Web article target for org-capture ("w" template) ----
+  (defun my/capture-web-article-target ()
+    "Target function for org-capture: create/open a reference note from clipboard URL."
     (let* ((url (string-trim (current-kill 0 t)))
            (title (or (ignore-errors
                         (with-temp-buffer
@@ -559,15 +560,13 @@ Reads URL from clipboard, fetches title, creates a structured note."
                                            (downcase (string-trim title)) t t))
            (slug (replace-regexp-in-string "^-\\|-$" "" slug))
            (file (expand-file-name (concat "references/" slug ".org") org-directory)))
-      (find-file file)
+      (set-buffer (org-capture-target-buffer file))
       (when (= (buffer-size) 0)
         (insert (format "#+title: %s\n#+filetags: :ref:\n#+created: %s\n\n* Source\n%s\n\n* Summary\n\n* My Notes\n"
-                        title (format-time-string "[%Y-%m-%d %a]") url))
-        (goto-char (point-max))
-        (re-search-backward "^\\* My Notes" nil t)
-        (forward-line 1))))
-
-  (global-set-key (kbd "C-c n w") #'my/capture-web-article)
+                        title (format-time-string "[%Y-%m-%d %a]") url)))
+      (goto-char (point-max))
+      (or (re-search-backward "^\\* My Notes" nil t) (goto-char (point-max)))
+      (forward-line 1)))
 
   (global-set-key (kbd "C-c n f") 'org-roam-node-find)
   (global-set-key (kbd "C-c n i") 'org-roam-node-insert)
