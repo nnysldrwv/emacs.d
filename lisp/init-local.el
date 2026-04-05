@@ -69,6 +69,10 @@
 
 ;; ---- Windows-specific performance ----
 (when (eq system-type 'windows-nt)
+  ;; Taskbar: set AppUserModelID so pinned shortcut merges with window
+  (when (fboundp 'w32-set-app-user-model-id)
+    (w32-set-app-user-model-id "GNU.Emacs"))
+
   ;; VC / Git — #1 cause of sluggishness on Windows
   (setq auto-revert-check-vc-info nil)   ; don't check git on every revert
   (setq auto-revert-interval 10)         ; slower polling (default 5s)
