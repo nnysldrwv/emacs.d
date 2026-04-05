@@ -19,33 +19,45 @@
         (throw 'found font)))
     nil))
 
-(when (display-graphic-p)
-  ;; Default font — prefer Maple Mono (built-in CJK, no rescale needed)
-  (let ((default-font (my/first-available-font
-                       '("Maple Mono NF CN"
-                         "Cascadia Code" "SF Mono" "Menlo" "Consolas"))))
-    (when default-font
-      (set-face-attribute 'default nil :family default-font :height 140)))
+(defun my/setup-fonts (&optional frame)
+  "Configure fonts. Works for both normal start and daemon+emacsclient.
+When called from `after-make-frame-functions', FRAME is the new frame."
+  (when frame (select-frame frame))
+  (when (display-graphic-p)
+    ;; Default font — prefer Maple Mono (built-in CJK, no rescale needed)
+    (let ((default-font (my/first-available-font
+                         '("Maple Mono NF CN"
+                           "Cascadia Code" "SF Mono" "Menlo" "Consolas"))))
+      (when default-font
+        (set-face-attribute 'default nil :family default-font :height 140)))
 
-  ;; CJK fallback — only needed if default font lacks CJK coverage
-  (unless (find-font (font-spec :family "Maple Mono NF CN"))
-    (let ((cjk-font (my/first-available-font
-                     '("霞鹜文楷等宽" "等距更纱黑体 SC"
-                       "LXGW WenKai Mono" "Sarasa Mono SC"
-                       "Noto Sans SC" "Microsoft YaHei UI"))))
-      (when cjk-font
-        (dolist (charset '(kana han cjk-misc bopomofo))
-          (set-fontset-font t charset (font-spec :family cjk-font))))))
+    ;; CJK fallback — only needed if default font lacks CJK coverage
+    (unless (find-font (font-spec :family "Maple Mono NF CN"))
+      (let ((cjk-font (my/first-available-font
+                       '("霞鹜文楷等宽" "等距更纱黑体 SC"
+                         "LXGW WenKai Mono" "Sarasa Mono SC"
+                         "Noto Sans SC" "Microsoft YaHei UI"))))
+        (when cjk-font
+          (dolist (charset '(kana han cjk-misc bopomofo))
+            (set-fontset-font t charset (font-spec :family cjk-font))))))
 
-  ;; Emoji & Symbol
-  (let ((emoji-font (my/first-available-font
-                     '("Segoe UI Emoji" "Apple Color Emoji" "Noto Color Emoji")))
-        (symbol-font (my/first-available-font
-                      '("Segoe UI Symbol" "Apple Symbols" "Symbola"))))
-    (when emoji-font
-      (set-fontset-font t 'emoji (font-spec :family emoji-font) nil 'prepend))
-    (when symbol-font
-      (set-fontset-font t 'symbol (font-spec :family symbol-font) nil 'prepend))))
+    ;; Emoji & Symbol
+    (let ((emoji-font (my/first-available-font
+                       '("Segoe UI Emoji" "Apple Color Emoji" "Noto Color Emoji")))
+          (symbol-font (my/first-available-font
+                        '("Segoe UI Symbol" "Apple Symbols" "Symbola"))))
+      (when emoji-font
+        (set-fontset-font t 'emoji (font-spec :family emoji-font) nil 'prepend))
+      (when symbol-font
+        (set-fontset-font t 'symbol (font-spec :family symbol-font) nil 'prepend)))
+
+    ;; Only need to run once — remove hook after first GUI frame
+    (remove-hook 'after-make-frame-functions #'my/setup-fonts)))
+
+;; Normal start: apply now; daemon: apply when first frame is created
+(if (daemonp)
+    (add-hook 'after-make-frame-functions #'my/setup-fonts)
+  (my/setup-fonts))
 
 ;; ============================================================
 ;;  2. General overrides + Windows performance tuning
