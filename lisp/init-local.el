@@ -319,19 +319,36 @@ When called from `after-make-frame-functions', FRAME is the new frame."
                          ("projectS" . ?s) ("ai" . ?a) ("hiring" . ?h)
                          ("@office" . ?o) ("@home" . ?H) ("@phone" . ?P)))
 
-  ;; ---- Agenda views — keep purcell's GTD "g" view, ADD Sean's views ----
-  (let ((existing org-agenda-custom-commands))
-    (setq org-agenda-custom-commands
-          (append existing
-                  '(("d" "Daily Dashboard"
-                     ((agenda "" ((org-agenda-span 'day)))
-                      (todo "NEXT" ((org-agenda-overriding-header "Next Actions")))
-                      (todo "WAITING" ((org-agenda-overriding-header "Waiting")))))
-                    ("w" "Weekly Overview"
-                     ((agenda "" ((org-agenda-span 'week)))
-                      (tags-todo "work" ((org-agenda-overriding-header "🏢 Work")))
-                      (tags-todo "personal" ((org-agenda-overriding-header "🏠 Personal")))
-                      (tags-todo "learning" ((org-agenda-overriding-header "📚 Learning")))))))))
+  ;; ---- Agenda views — override purcell's GTD to match Sean's keywords ----
+  ;; Sean's TODO keywords: TODO → NEXT → WAITING → DONE / CANCELLED / HOLD
+  ;; No PROJECT or DELEGATED. No INBOX tag. Keep it simple.
+  (setq org-stuck-projects '("" nil nil ""))  ; disable stuck projects (no PROJECT keyword)
+
+  (setq org-agenda-custom-commands
+        '(("g" "GTD"
+           ((agenda "" nil)
+            (todo "NEXT"
+                  ((org-agenda-overriding-header "Next Actions")
+                   (org-agenda-sorting-strategy '(category-keep))))
+            (todo "TODO"
+                  ((org-agenda-overriding-header "Tasks")
+                   (org-agenda-todo-ignore-scheduled 'future)
+                   (org-agenda-sorting-strategy '(category-keep))))
+            (todo "WAITING"
+                  ((org-agenda-overriding-header "Waiting")
+                   (org-agenda-sorting-strategy '(category-keep))))
+            (todo "HOLD"
+                  ((org-agenda-overriding-header "On Hold")
+                   (org-agenda-sorting-strategy '(category-keep))))))
+          ("d" "Daily Dashboard"
+           ((agenda "" ((org-agenda-span 'day)))
+            (todo "NEXT" ((org-agenda-overriding-header "Next Actions")))
+            (todo "WAITING" ((org-agenda-overriding-header "Waiting")))))
+          ("w" "Weekly Overview"
+           ((agenda "" ((org-agenda-span 'week)))
+            (tags-todo "work" ((org-agenda-overriding-header "🏢 Work")))
+            (tags-todo "personal" ((org-agenda-overriding-header "🏠 Personal")))
+            (tags-todo "learning" ((org-agenda-overriding-header "📚 Learning")))))))
 
   ;; ---- Babel image dir ----
   (defun my/org-babel-image-dir ()
