@@ -173,6 +173,11 @@ When called from `after-make-frame-functions', FRAME is the new frame."
                 (treemacs))))
 
   (with-eval-after-load 'treemacs
+    ;; Smaller font in treemacs buffer (0.85× default size)
+    (defun my/treemacs-set-small-font ()
+      (face-remap-add-relative 'default :height 0.85))
+    (add-hook 'treemacs-mode-hook #'my/treemacs-set-small-font)
+
     (define-key treemacs-mode-map [mouse-1]
                 (lambda (event)
                   "Single click to open file / expand dir."
