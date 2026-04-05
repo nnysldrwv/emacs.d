@@ -51,6 +51,9 @@
 ;;  2. General overrides
 ;; ============================================================
 
+;; Light theme (override purcell's default dark theme)
+(setq-default custom-enabled-themes '(sanityinc-tomorrow-day))
+
 (setq system-time-locale "C")
 (setq-default cursor-type 'bar)
 (save-place-mode 1)
