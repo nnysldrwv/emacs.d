@@ -319,36 +319,57 @@ When called from `after-make-frame-functions', FRAME is the new frame."
                          ("projectS" . ?s) ("ai" . ?a) ("hiring" . ?h)
                          ("@office" . ?o) ("@home" . ?H) ("@phone" . ?P)))
 
-  ;; ---- Agenda views — override purcell's GTD to match Sean's keywords ----
-  ;; Sean's TODO keywords: TODO → NEXT → WAITING → DONE / CANCELLED / HOLD
-  ;; No PROJECT or DELEGATED. No INBOX tag. Keep it simple.
-  (setq org-stuck-projects '("" nil nil ""))  ; disable stuck projects (no PROJECT keyword)
+  ;; ---- Agenda views — Sean's GTD / Daily / Weekly ----
+  ;; Keywords: TODO → NEXT → WAITING → DONE / CANCELLED / HOLD
+  ;; Tags (mutually exclusive group): work | personal | learning
+  (setq org-stuck-projects '("" nil nil ""))
 
   (setq org-agenda-custom-commands
         '(("g" "GTD"
-           ((agenda "" nil)
+           ((agenda "" ((org-agenda-span 'day)))
             (todo "NEXT"
-                  ((org-agenda-overriding-header "Next Actions")
-                   (org-agenda-sorting-strategy '(category-keep))))
+                  ((org-agenda-overriding-header "⚡ Next Actions")
+                   (org-agenda-sorting-strategy '(priority-down category-keep))))
             (todo "TODO"
-                  ((org-agenda-overriding-header "Tasks")
+                  ((org-agenda-overriding-header "📋 Tasks")
                    (org-agenda-todo-ignore-scheduled 'future)
-                   (org-agenda-sorting-strategy '(category-keep))))
+                   (org-agenda-sorting-strategy '(tag-up priority-down category-keep))))
             (todo "WAITING"
-                  ((org-agenda-overriding-header "Waiting")
+                  ((org-agenda-overriding-header "⏳ Waiting")
                    (org-agenda-sorting-strategy '(category-keep))))
             (todo "HOLD"
-                  ((org-agenda-overriding-header "On Hold")
+                  ((org-agenda-overriding-header "🧊 On Hold")
                    (org-agenda-sorting-strategy '(category-keep))))))
-          ("d" "Daily Dashboard"
-           ((agenda "" ((org-agenda-span 'day)))
-            (todo "NEXT" ((org-agenda-overriding-header "Next Actions")))
-            (todo "WAITING" ((org-agenda-overriding-header "Waiting")))))
-          ("w" "Weekly Overview"
-           ((agenda "" ((org-agenda-span 'week)))
-            (tags-todo "work" ((org-agenda-overriding-header "🏢 Work")))
-            (tags-todo "personal" ((org-agenda-overriding-header "🏠 Personal")))
-            (tags-todo "learning" ((org-agenda-overriding-header "📚 Learning")))))))
+
+          ("d" "Daily"
+           ((agenda "" ((org-agenda-span 'day)
+                        (org-deadline-warning-days 3)))
+            (todo "NEXT"
+                  ((org-agenda-overriding-header "⚡ Next Actions")
+                   (org-agenda-sorting-strategy '(priority-down category-keep))))
+            (todo "TODO"
+                  ((org-agenda-overriding-header "📋 Available Tasks")
+                   (org-agenda-todo-ignore-scheduled 'future)
+                   (org-agenda-sorting-strategy '(priority-down category-keep))))
+            (todo "WAITING"
+                  ((org-agenda-overriding-header "⏳ Waiting")
+                   (org-agenda-sorting-strategy '(category-keep))))))
+
+          ("w" "Weekly"
+           ((agenda "" ((org-agenda-span 'week)
+                        (org-deadline-warning-days 7)))
+            (tags-todo "work"
+                       ((org-agenda-overriding-header "🏢 Work")
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "personal"
+                       ((org-agenda-overriding-header "🏠 Personal")
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "learning"
+                       ((org-agenda-overriding-header "📚 Learning")
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "-work-personal-learning"
+                       ((org-agenda-overriding-header "📦 Untagged")
+                        (org-agenda-sorting-strategy '(todo-state-down category-keep))))))))
 
   ;; ---- Babel image dir ----
   (defun my/org-babel-image-dir ()
