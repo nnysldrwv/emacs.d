@@ -232,12 +232,12 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   (setq org-todo-keywords
         '((sequence "TODO(t)" "NEXT(n)" "WAITING(w)" "|" "DONE(d)" "CANCELLED(c)" "HOLD(h)")))
   (setq org-todo-keyword-faces
-        '(("TODO"      :foreground "#0031a9" :weight bold)
-          ("NEXT"      :foreground "#d3303a" :weight bold)
-          ("WAITING"   :foreground "#884900" :weight bold)
-          ("HOLD"      :foreground "#70508f" :weight bold)
-          ("DONE"      :foreground "#006800" :weight bold)
-          ("CANCELLED" :foreground "#8f8f8f" :weight bold)))
+        '(("TODO"      :foreground "#2952a3" :weight bold)  ; 深蓝 — 普通待办
+          ("NEXT"      :foreground "#c0392b" :weight bold)  ; 朱红 — 立即行动
+          ("WAITING"   :foreground "#8b6914" :weight bold)  ; 琥珀 — 等待中
+          ("HOLD"      :foreground "#6c6c6c" :weight bold)  ; 中灰 — 搁置
+          ("DONE"      :foreground "#2e7d32" :weight bold)  ; 深绿 — 完成
+          ("CANCELLED" :foreground "#9e9e9e" :weight bold)))  ; 浅灰 — 取消
 
   ;; Logging
   (setq org-log-done 'time)
