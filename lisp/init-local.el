@@ -48,7 +48,7 @@
       (set-fontset-font t 'symbol (font-spec :family symbol-font) nil 'prepend))))
 
 ;; ============================================================
-;;  2. General overrides
+;;  2. General overrides + Windows performance tuning
 ;; ============================================================
 
 ;; Light theme (override purcell's default dark theme)
@@ -64,10 +64,59 @@
 ;; Faster which-key (purcell default is 1.5s)
 (setq-default which-key-idle-delay 0.5)
 
-;; Windows: VC check in auto-revert is expensive
+;; ---- Windows-specific performance ----
 (when (eq system-type 'windows-nt)
-  (setq auto-revert-check-vc-info nil)
-  (setq auto-revert-interval 10))
+  ;; VC / Git — #1 cause of sluggishness on Windows
+  (setq auto-revert-check-vc-info nil)   ; don't check git on every revert
+  (setq auto-revert-interval 10)         ; slower polling (default 5s)
+  (setq vc-handled-backends '(Git))      ; only Git, skip SVN/Hg/etc
+  (setq vc-git-annotate-switches "-w")   ; skip whitespace in blame
+
+  ;; Process creation is expensive on Windows (no fork())
+  (setq w32-pipe-read-delay 0)           ; don't sleep between pipe reads
+  (setq w32-pipe-buffer-size (* 64 1024)) ; 64KB pipe buffer (default 4KB)
+  (setq process-adaptive-read-buffering nil) ; disable adaptive buffering
+
+  ;; File I/O
+  (setq inhibit-compacting-font-caches t)    ; CJK font cache GC is very slow
+  (setq w32-get-true-file-attributes nil)    ; skip expensive stat() calls
+  (setq find-file-visit-truename nil)        ; don't chase symlinks eagerly
+
+  ;; Rendering
+  (setq redisplay-skip-fontification-on-input t) ; skip font-lock while typing
+  (setq fast-but-imprecise-scrolling t)          ; faster scroll
+  (setq jit-lock-defer-time 0.05)               ; defer font-lock 50ms
+
+  ;; Long lines protection (Emacs 29+)
+  (when (boundp 'long-line-threshold)
+    (setq long-line-threshold 1000)
+    (setq large-hscroll-threshold 1000)
+    (setq syntax-wholeline-max 1000))
+
+  ;; Disable expensive modes in large files
+  (add-hook 'find-file-hook
+            (lambda ()
+              (when (> (buffer-size) (* 512 1024))  ; >512KB
+                (fundamental-mode)
+                (font-lock-mode -1)
+                (message "⚠ Large file — disabled font-lock"))))
+
+  ;; Magit: use libgit when available, limit diff context
+  (with-eval-after-load 'magit
+    (setq magit-refresh-status-buffer nil)  ; don't auto-refresh
+    (setq magit-diff-refine-hunk nil))      ; skip word-level diff
+
+  ;; Projectile: use alien indexing (external tools) on Windows
+  (with-eval-after-load 'projectile
+    (setq projectile-indexing-method 'alien)
+    (setq projectile-enable-caching t)))
+
+;; ---- GC tuning (all platforms) ----
+;; purcell uses gcmh, but we tighten idle threshold
+(with-eval-after-load 'gcmh
+  (setq gcmh-idle-delay 'auto)
+  (setq gcmh-high-cons-threshold (* 64 1024 1024))  ; 64MB during work
+  (setq gcmh-low-cons-threshold (* 16 1024 1024)))  ; 16MB when idle
 
 ;; Backup / auto-save locations (purcell disables backups; we keep them)
 (setq backup-directory-alist
