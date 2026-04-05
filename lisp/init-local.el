@@ -176,7 +176,7 @@ When called from `after-make-frame-functions', FRAME is the new frame."
     ;; Smaller font in treemacs buffer (0.85× default size)
     (defun my/treemacs-set-small-font ()
       (require 'face-remap nil t)
-      (face-remap-add-relative 'default :height 0.75))
+      (face-remap-add-relative 'default :height 0.85))
     (add-hook 'treemacs-mode-hook #'my/treemacs-set-small-font)
 
     (define-key treemacs-mode-map [mouse-1]
@@ -545,6 +545,32 @@ Skip files under ~/org/collections/ to preserve records."
            :target (file+head "fleeting/%<%Y%m%d%H%M%S>-${slug}.org"
                               "#+title: ${title}\n#+date: %U\n#+filetags: :fleeting:\n\n")
            :unnarrowed t)))
+
+  ;; ---- Web article → roam/ref/ (one-key from clipboard URL) ----
+  (defun my/org-roam-capture-web-article ()
+    "Capture a web article into roam/ref/.
+Reads URL from clipboard, fetches title, creates a ref note."
+    (interactive)
+    (let* ((url (string-trim (current-kill 0 t)))
+           (title (or (ignore-errors
+                        (with-temp-buffer
+                          (url-insert-file-contents url)
+                          (goto-char (point-min))
+                          (when (re-search-forward "<title>\\([^<]*\\)</title>" nil t)
+                            (string-trim (match-string 1)))))
+                      (read-string "Title: "))))
+      (org-roam-capture-
+       :node (org-roam-node-create :title title)
+       :templates
+       `(("w" "Web article" plain "%?"
+          :target (file+head
+                   ,(concat "ref/%<%Y%m%d%H%M%S>-${slug}.org")
+                   ,(concat "#+title: ${title}\n#+date: %U\n#+filetags: :ref:\n\n"
+                            "* Source\n" url "\n\n"
+                            "* Summary\n\n* My Notes\n")))))))
+
+  (global-set-key (kbd "C-c n w") #'my/org-roam-capture-web-article)
+
   (global-set-key (kbd "C-c n f") 'org-roam-node-find)
   (global-set-key (kbd "C-c n i") 'org-roam-node-insert)
   (global-set-key (kbd "C-c n l") 'org-roam-buffer-toggle)
