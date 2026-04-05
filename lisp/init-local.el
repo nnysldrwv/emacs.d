@@ -537,19 +537,15 @@ Skip files under ~/org/collections/ to preserve records."
            :target (file+head "%<%Y%m%d%H%M%S>-${slug}.org"
                               "#+title: ${title}\n#+date: %U\n#+filetags: \n\n")
            :unnarrowed t)
-          ("r" "Reference" plain "%?"
-           :target (file+head "ref/%<%Y%m%d%H%M%S>-${slug}.org"
-                              "#+title: ${title}\n#+date: %U\n#+filetags: :ref:\n\n* Source\n\n* Summary\n\n* Notes\n")
-           :unnarrowed t)
           ("f" "Fleeting" plain "%?"
            :target (file+head "fleeting/%<%Y%m%d%H%M%S>-${slug}.org"
                               "#+title: ${title}\n#+date: %U\n#+filetags: :fleeting:\n\n")
            :unnarrowed t)))
 
-  ;; ---- Web article → roam/ref/ (one-key from clipboard URL) ----
-  (defun my/org-roam-capture-web-article ()
-    "Capture a web article into roam/ref/.
-Reads URL from clipboard, fetches title, creates a ref note."
+  ;; ---- Web article → references/ (one-key from clipboard URL) ----
+  (defun my/capture-web-article ()
+    "Capture a web article into ~/org/references/.
+Reads URL from clipboard, fetches title, creates a structured note."
     (interactive)
     (let* ((url (string-trim (current-kill 0 t)))
            (title (or (ignore-errors
@@ -558,18 +554,20 @@ Reads URL from clipboard, fetches title, creates a ref note."
                           (goto-char (point-min))
                           (when (re-search-forward "<title>\\([^<]*\\)</title>" nil t)
                             (string-trim (match-string 1)))))
-                      (read-string "Title: "))))
-      (org-roam-capture-
-       :node (org-roam-node-create :title title)
-       :templates
-       `(("w" "Web article" plain "%?"
-          :target (file+head
-                   ,(concat "ref/%<%Y%m%d%H%M%S>-${slug}.org")
-                   ,(concat "#+title: ${title}\n#+date: %U\n#+filetags: :ref:\n\n"
-                            "* Source\n" url "\n\n"
-                            "* Summary\n\n* My Notes\n")))))))
+                      (read-string "Title: ")))
+           (slug (replace-regexp-in-string "[^a-zA-Z0-9\u4e00-\u9fff]+" "-"
+                                           (downcase (string-trim title)) t t))
+           (slug (replace-regexp-in-string "^-\\|-$" "" slug))
+           (file (expand-file-name (concat "references/" slug ".org") org-directory)))
+      (find-file file)
+      (when (= (buffer-size) 0)
+        (insert (format "#+title: %s\n#+filetags: :ref:\n#+created: %s\n\n* Source\n%s\n\n* Summary\n\n* My Notes\n"
+                        title (format-time-string "[%Y-%m-%d %a]") url))
+        (goto-char (point-max))
+        (re-search-backward "^\\* My Notes" nil t)
+        (forward-line 1))))
 
-  (global-set-key (kbd "C-c n w") #'my/org-roam-capture-web-article)
+  (global-set-key (kbd "C-c n w") #'my/capture-web-article)
 
   (global-set-key (kbd "C-c n f") 'org-roam-node-find)
   (global-set-key (kbd "C-c n i") 'org-roam-node-insert)
@@ -579,7 +577,6 @@ Reads URL from clipboard, fetches title, creates a ref note."
   (global-set-key (kbd "C-c n t") 'org-roam-tag-add)
   (with-eval-after-load 'org-roam
     (make-directory (expand-file-name "roam" org-directory) t)
-    (make-directory (expand-file-name "roam/ref" org-directory) t)
     (make-directory (expand-file-name "roam/fleeting" org-directory) t)
     (org-roam-db-autosync-mode)))
 
