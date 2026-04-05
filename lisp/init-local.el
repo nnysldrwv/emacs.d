@@ -58,6 +58,9 @@
 (setq-default cursor-type 'bar)
 (save-place-mode 1)
 
+;; Soft word-wrap everywhere (no mid-word breaks)
+(global-visual-line-mode 1)
+
 ;; Faster desktop saves (purcell default is 600s)
 (setq desktop-auto-save-timeout 60)
 
