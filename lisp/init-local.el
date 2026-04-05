@@ -259,7 +259,9 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   (setq org-default-notes-file "~/org/inbox.org")
 
   ;; Archive
-  (setq org-archive-location ".archive/%s_archive.org::")
+  (setq org-archive-location
+        (concat (expand-file-name ".archive/" org-directory)
+                "%s_archive.org::"))
 
   ;; ---- Capture templates ----
   (defun my/journal-file-today ()
