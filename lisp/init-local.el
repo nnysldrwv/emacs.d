@@ -348,11 +348,11 @@ When called from `after-make-frame-functions', FRAME is the new frame."
                   ((org-agenda-overriding-header "⚡ Next Actions")
                    (org-agenda-sorting-strategy '(priority-down category-keep))))
             (todo "TODO"
-                  ((org-agenda-overriding-header "📋 Available Tasks")
-                   (org-agenda-todo-ignore-scheduled 'future)
-                   (org-agenda-sorting-strategy '(priority-down category-keep))))
+                  ((org-agenda-overriding-header "📋 Tasks")
+                   (org-agenda-sorting-strategy '(tag-up priority-down category-keep))))
             (todo "WAITING"
-                  ((org-agenda-overriding-header "⏳ Waiting")
+                  ((org-agenda-overriding-header "⏳ Waiting (FYI)")
+                   (org-agenda-todo-ignore-scheduled 'future)
                    (org-agenda-sorting-strategy '(category-keep))))))
 
           ("w" "Weekly"
