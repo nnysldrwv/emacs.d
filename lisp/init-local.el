@@ -67,7 +67,7 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 (setq-default custom-enabled-themes '(tsdh-light))
 
 (setq system-time-locale "C")
-(setq-default cursor-type 'bar)
+
 (save-place-mode 1)
 
 ;; Soft word-wrap everywhere (no mid-word breaks)
