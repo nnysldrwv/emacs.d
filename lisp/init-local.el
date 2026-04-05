@@ -1,4 +1,4 @@
-/face-remap-add-relative;;; init-local.el --- Sean's personal customizations on top of purcell/emacs.d -*- lexical-binding: t; -*-
+;;; init-local.el --- Sean's personal customizations on top of purcell/emacs.d -*- lexical-binding: t; -*-
 ;;; Commentary:
 ;;
 ;; This file is loaded at the end of init.el (purcell convention).
