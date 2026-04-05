@@ -248,7 +248,9 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   (setq org-src-fontify-natively t)
   (setq org-src-tab-acts-natively t)
   (setq org-return-follows-link t)
-  (setq org-startup-indented nil)         ; compat: org-indent + valign hurts Windows perf
+  (setq org-startup-indented nil)         ; org-indent via hook below (valign removed)
+  (setq org-hide-leading-stars t)         ; hide extra * in headings
+  (add-hook 'org-mode-hook 'org-indent-mode)
   (setq org-startup-folded 'content)
   (setq org-hide-emphasis-markers t)
   (setq org-ellipsis " ▾")
