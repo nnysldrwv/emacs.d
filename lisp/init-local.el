@@ -52,7 +52,7 @@
 ;; ============================================================
 
 ;; Light theme (override purcell's default dark theme)
-(setq-default custom-enabled-themes '(sanityinc-tomorrow-day))
+(setq-default custom-enabled-themes '(tsdh-light))
 
 (setq system-time-locale "C")
 (setq-default cursor-type 'bar)
