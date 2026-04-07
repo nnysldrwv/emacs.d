@@ -10,6 +10,13 @@ emacsclient = msys2Bin & "\emacsclientw.exe"
 runemacs    = msys2Bin & "\runemacs.exe"
 emacs       = msys2Bin & "\emacs.exe"
 
+' Ensure mingw64/bin is in PATH so Emacs can load tree-sitter and its deps (wasmtime.dll etc.)
+Dim currentPath
+currentPath = WshShell.Environment("PROCESS")("PATH")
+If InStr(currentPath, msys2Bin) = 0 Then
+    WshShell.Environment("PROCESS")("PATH") = msys2Bin & ";" & currentPath
+End If
+
 ' Try emacsclient first — if daemon is already running, this returns instantly
 Dim ret
 ret = WshShell.Run("""" & emacsclient & """ -c -n -a """"", 0, True)

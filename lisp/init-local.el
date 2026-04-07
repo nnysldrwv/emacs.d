@@ -29,17 +29,22 @@ When called from `after-make-frame-functions', FRAME is the new frame."
                          '("Maple Mono NF CN"
                            "Cascadia Code" "SF Mono" "Menlo" "Consolas"))))
       (when default-font
-        (set-face-attribute 'default nil :family default-font :height 140)))
+        (set-face-attribute 'default nil :family default-font :height 120)))
 
-    ;; CJK fallback — only needed if default font lacks CJK coverage
-    (unless (find-font (font-spec :family "Maple Mono NF CN"))
-      (let ((cjk-font (my/first-available-font
-                       '("霞鹜文楷等宽" "等距更纱黑体 SC"
-                         "LXGW WenKai Mono" "Sarasa Mono SC"
-                         "Noto Sans SC" "Microsoft YaHei UI"))))
-        (when cjk-font
-          (dolist (charset '(kana han cjk-misc bopomofo))
-            (set-fontset-font t charset (font-spec :family cjk-font))))))
+    ;; Variable-pitch face (used by shr/elfeed for reading)
+    (let ((vp-font (my/first-available-font
+                    '("霞鹜文楷" "Microsoft YaHei UI" "Sarasa Gothic SC" "Noto Sans SC" "Segoe UI" "Arial"))))
+      (when vp-font
+        (set-face-attribute 'variable-pitch nil :family vp-font)))
+
+    ;; CJK fallback — explicit mapping for better rendering
+    (let ((cjk-font (my/first-available-font
+                     '("霞鹜文楷等宽" "等距更纱黑体 SC"
+                       "LXGW WenKai Mono" "Sarasa Mono SC"
+                       "Noto Sans SC" "Microsoft YaHei UI"))))
+      (when cjk-font
+        (dolist (charset '(kana han cjk-misc bopomofo))
+          (set-fontset-font t charset (font-spec :family cjk-font) nil 'prepend))))
 
     ;; Emoji & Symbol
     (let ((emoji-font (my/first-available-font
@@ -73,8 +78,10 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 ;; Soft word-wrap everywhere (no mid-word breaks)
 (global-visual-line-mode 1)
 
-;; Faster desktop saves (purcell default is 600s)
-(setq desktop-auto-save-timeout 60)
+;; Desktop save/restore — disabled
+(desktop-save-mode -1)
+(advice-add 'desktop-read :override #'ignore)
+(setq desktop-auto-save-timeout nil)   ; 停掉 autosave 定时器
 
 ;; Faster which-key (purcell default is 1.5s)
 (setq-default which-key-idle-delay 0.5)
@@ -193,7 +200,6 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 (defun my/restart-emacs ()
   "Restart Emacs cross-platform."
   (interactive)
-  (desktop-save user-emacs-directory)
   (cond
    ((eq system-type 'windows-nt)
     (let ((emacs-bin (expand-file-name "runemacs.exe" invocation-directory)))
@@ -224,7 +230,23 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 ;;  6. Org-mode — override purcell defaults with Sean's workflow
 ;; ============================================================
 
+;; ---- Emacs server + org-protocol (must be outside with-eval-after-load) ----
+;; Start server if not already running (needed for org-protocol & emacsclient)
+(require 'server)
+(unless (server-running-p)
+  (server-start))
+
+;; Load org-protocol so org-protocol:// URLs are handled by Emacs
 (with-eval-after-load 'org
+  (require 'org-protocol))
+
+(with-eval-after-load 'org
+  ;; org-tempo：启用 <s Tab 等结构模板
+  (require 'org-tempo)
+
+  ;; 关掉 ispell，避免 "No plain word-list" 报错
+  (setq ispell-program-name nil)
+
   ;; Directory
   (setq org-directory "~/org")
 
@@ -297,29 +319,41 @@ When called from `after-make-frame-functions', FRAME is the new frame."
            :empty-lines 1)
           ("w" "Web article" plain (function my/capture-web-article-target)
            "%?"
-           :empty-lines 1 :jump-to-captured t)))
+           :empty-lines 1 :jump-to-captured t)
+
+          ;; ---- org-protocol captures (triggered from browser bookmark) ----
+          ;; "pl" = 阅读列表：存到 inbox，标 TODO，一键完成
+          ("pl" "Protocol: Read later" entry (file "~/org/inbox.org")
+           "* TODO %:annotation\n:PROPERTIES:\n:CREATED: %U\n:END:\n%i\n"
+           :immediate-finish t :jump-to-captured t)
+          ;; "pn" = 认真读做笔记：存到 references/，与 "w" 模板目标一致
+          ;; 用法：可选先选中一段文字，再点书签；引用内容填入 My Notes 节
+          ("pn" "Protocol: Note → references/" plain
+           (function my/protocol-note-target)
+           "#+begin_quote\n%i\n#+end_quote\n%?"
+           :jump-to-captured t)))
 
   ;; ---- Refile targets ----
   (setq my/org-references-files
         (file-expand-wildcards "~/org/references/*.org"))
 
   (setq org-refile-targets '(("~/org/inbox.org" :maxlevel . 2)
-                              ("~/org/projects/project-s.org" :maxlevel . 2)
-                              ("~/org/projects/demo.org" :maxlevel . 2)
-                              ("~/org/areas/investment.org" :maxlevel . 2)
-                              ("~/org/areas/gamedev.org" :maxlevel . 2)
-                              ("~/org/areas/ai-agent.org" :maxlevel . 2)
-                              (my/org-references-files :maxlevel . 1)))
+                             ("~/org/projects/project-s.org" :maxlevel . 2)
+                             ("~/org/projects/demo.org" :maxlevel . 2)
+                             ("~/org/areas/investment.org" :maxlevel . 2)
+                             ("~/org/areas/gamedev.org" :maxlevel . 2)
+                             ("~/org/areas/ai-agent.org" :maxlevel . 2)
+                             (my/org-references-files :maxlevel . 1)))
   (setq org-refile-use-outline-path 'file)
   (setq org-outline-path-complete-in-steps nil)
   (setq org-refile-allow-creating-parent-nodes 'confirm)
 
   ;; ---- Tags ----
   (setq org-tag-alist '((:startgroup)
-                         ("work" . ?w) ("personal" . ?p) ("learning" . ?l)
-                         (:endgroup)
-                         ("projectS" . ?s) ("ai" . ?a) ("hiring" . ?h)
-                         ("@office" . ?o) ("@home" . ?H) ("@phone" . ?P)))
+                        ("work" . ?w) ("personal" . ?p) ("learning" . ?l)
+                        (:endgroup)
+                        ("projectS" . ?s) ("ai" . ?a) ("hiring" . ?h)
+                        ("@office" . ?o) ("@home" . ?H) ("@phone" . ?P)))
 
   ;; ---- Agenda views — Sean's GTD / Daily / Weekly ----
   ;; Keywords: TODO → NEXT → WAITING → DONE / CANCELLED / HOLD
@@ -562,11 +596,126 @@ Skip files under ~/org/collections/ to preserve records."
   (global-set-key (kbd "C-c g s") 'org-gcal-sync)
   (global-set-key (kbd "C-c g f") 'org-gcal-fetch)
   (global-set-key (kbd "C-c g d") 'org-gcal-delete-at-point)
+
+  ;; 默认推送的日历 ID
+  (defvar my/org-gcal-default-calendar-id
+    "f3f2ce4fb88adc5db8f25b71d3c75d20924a8c147a0feb34eafe477f173a860b@group.calendar.google.com")
+
+  ;; 从 :org-gcal: drawer 里取出当前时间戳字符串
+  (defun my/org-gcal-drawer-timestamp ()
+    "返回当前 entry 的 :org-gcal: drawer 里的时间戳，没有则返回 nil。"
+    (save-excursion
+      (let ((end (save-excursion (outline-next-heading) (point))))
+        (when (re-search-forward ":org-gcal:" end t)
+          (let ((drawer-end (save-excursion
+                              (re-search-forward ":END:" end t)
+                              (point))))
+            (let ((content (buffer-substring-no-properties (point) drawer-end)))
+              (when (string-match "<[^>]+>" content)
+                (match-string 0 content))))))))
+
+  ;; 更新或新建 :org-gcal: drawer，把 timestamp 写进去
+  (defun my/org-gcal-set-drawer (timestamp)
+    "在当前 entry 中把 TIMESTAMP 写入 :org-gcal: drawer。"
+    (save-excursion
+      (let* ((entry-start (point))
+             (entry-end   (save-excursion (outline-next-heading) (point))))
+        (goto-char entry-start)
+        (if (re-search-forward "^:org-gcal:$" entry-end t)
+            ;; 已有 drawer：清空内容重写
+            (let ((content-start (point)))
+              (re-search-forward "^:END:$" entry-end t)
+              (beginning-of-line)
+              (delete-region content-start (point))
+              (insert "\n" timestamp "\n"))
+          ;; 没有 drawer：插在 :PROPERTIES:...:END: 之后
+          (goto-char entry-start)
+          (if (re-search-forward "^:END:$" entry-end t)
+              (progn (end-of-line) (insert "\n:org-gcal:\n" timestamp "\n:END:"))
+            ;; 连 PROPERTIES 都没有，插在 planning 行之后
+            (org-end-of-meta-data nil)
+            (insert ":org-gcal:\n" timestamp "\n:END:\n"))))))
+
+  ;; 直接 PATCH GCal event 的 status 字段（org-gcal 本身不发 status）
+  (defun my/org-gcal-patch-status (calendar-id event-id gcal-status)
+    "向 GCal 发 PATCH，把 EVENT-ID 的 status 改为 GCAL-STATUS (\"confirmed\"/\"cancelled\")。"
+    (require 'org-gcal)
+    (require 'request)
+    (let ((url (concat (org-gcal-events-url calendar-id)
+                       "/" (url-hexify-string event-id)))
+          (token (org-gcal--get-access-token calendar-id)))
+      (request url
+        :type "PATCH"
+        :headers `(("Content-Type"  . "application/json")
+                   ("Accept"        . "application/json")
+                   ("Authorization" . ,(format "Bearer %s" token)))
+        :data (json-encode `(("status" . ,gcal-status)))
+        :parser 'org-gcal--json-read
+        :success (cl-function
+                  (lambda (&key _data &allow-other-keys)
+                    (message "org-gcal: status → %s ✓ (%s)" gcal-status event-id)))
+        :error (cl-function
+                (lambda (&key error-thrown &allow-other-keys)
+                  (message "org-gcal: PATCH status failed: %S" error-thrown))))))
+
+  ;; todo state → gcal status 映射
+  (defun my/org-gcal-todo-to-gcal-status (todo-state)
+    "把 org todo 关键词映射到 GCal event status 字符串，无法映射返回 nil。"
+    (cond
+     ((member todo-state '("CANCELLED"))  "cancelled")
+     ((member todo-state '("TODO" "NEXT" "WAITING" "HOLD" "DONE")) "confirmed")
+     (t nil)))
+
+  ;; 保存时自动推送：新 entry 或时间戳已修改的 entry；状态变化时额外 PATCH status
+  (defun my/org-gcal-auto-post ()
+    "保存 org 文件时，自动推送/更新有时间戳的 entry 到 Google Calendar。
+如果 todo 状态发生变化，同时 PATCH GCal event 的 status 字段。"
+    (when (derived-mode-p 'org-mode)
+      (require 'org-gcal)
+      (org-save-outline-visibility t
+        (org-map-entries
+         (lambda ()
+           (let* ((scheduled   (org-entry-get nil "SCHEDULED"))
+                  (deadline    (org-entry-get nil "DEADLINE"))
+                  (timestamp   (or scheduled deadline))
+                  (has-id      (org-entry-get nil "entry-id"))
+                  (calendar-id (or (org-entry-get nil "calendar-id")
+                                   my/org-gcal-default-calendar-id))
+                  (todo-state  (org-get-todo-state))
+                  (gcal-status (my/org-gcal-todo-to-gcal-status todo-state))
+                  ;; 记录上次推送时的 todo state，用于判断是否变化
+                  (last-state  (org-entry-get nil "gcal-todo-state"))
+                  (state-changed (and has-id gcal-status
+                                      (not (equal last-state todo-state))))
+                  (drawer-ts   (my/org-gcal-drawer-timestamp))
+                  (ts-changed  (and timestamp has-id
+                                    (or (not drawer-ts)
+                                        (not (string= (string-trim timestamp)
+                                                      (string-trim drawer-ts)))))))
+             ;; 1. 时间戳变化或新 entry → 走完整 post-at-point
+             (when (and timestamp (or (not has-id) ts-changed))
+               (my/org-gcal-set-drawer timestamp)
+               (org-entry-put nil "calendar-id" calendar-id)
+               (condition-case err
+                   (org-gcal-post-at-point)
+                 (error (message "org-gcal push failed: %s" err))))
+             ;; 2. todo 状态变化 → 单独 PATCH status（post-at-point 不发 status 字段）
+             (when state-changed
+               (let ((event-id (org-gcal--get-id (point))))
+                 (when event-id
+                   (org-entry-put nil "gcal-todo-state" todo-state)
+                   (my/org-gcal-patch-status calendar-id event-id gcal-status))))))
+         nil 'file))))
+
+  ;; hook 挂在外面，不依赖 org-gcal 是否已加载
+  (add-hook 'after-save-hook #'my/org-gcal-auto-post)
+
+  ;; 定时双向同步（org-gcal 加载后再启动定时器）
   (with-eval-after-load 'org-gcal
     (run-with-timer 120 1800
                     (lambda ()
                       (when (not org-gcal--sync-lock)
-                        (org-gcal-fetch))))))
+                        (org-gcal-sync))))))
 
 ;; ============================================================
 ;; 10. Org-roam (knowledge graph)
@@ -608,6 +757,31 @@ Skip files under ~/org/collections/ to preserve records."
       (or (re-search-backward "^\\* My Notes" nil t) (goto-char (point-max)))
       (forward-line 1)))
 
+  ;; ---- org-protocol target for "pn" template ----
+  ;; 与 my/capture-web-article-target 逻辑相同，
+  ;; 但 URL/title 从 org-protocol plist 取（而非剪贴板）
+  (defun my/protocol-note-target ()
+    "Target function for org-capture 'pn': create/open a reference note.
+URL and title come from org-protocol plist (%:link / %:description)."
+    (let* ((url   (or (plist-get org-store-link-plist :link)
+                      (plist-get org-store-link-plist :url)
+                      ""))
+           (title (or (plist-get org-store-link-plist :description)
+                      (read-string "Title: ")))
+           (slug  (replace-regexp-in-string
+                   "^-\\|-$" ""
+                   (replace-regexp-in-string
+                    "[^a-zA-Z0-9\u4e00-\u9fff]+" "-"
+                    (downcase (string-trim title)) t t)))
+           (file  (expand-file-name (concat "references/" slug ".org") org-directory)))
+      (set-buffer (org-capture-target-buffer file))
+      (when (= (buffer-size) 0)
+        (insert (format "#+title: %s\n#+filetags: :ref:\n#+created: %s\n\n* Source\n%s\n\n* Summary\n\n* My Notes\n"
+                        title (format-time-string "[%Y-%m-%d %a]") url)))
+      (goto-char (point-max))
+      (or (re-search-backward "^\\* My Notes" nil t) (goto-char (point-max)))
+      (forward-line 1)))
+
   (global-set-key (kbd "C-c n f") 'org-roam-node-find)
   (global-set-key (kbd "C-c n i") 'org-roam-node-insert)
   (global-set-key (kbd "C-c n l") 'org-roam-buffer-toggle)
@@ -624,11 +798,11 @@ Skip files under ~/org/collections/ to preserve records."
 ;; ============================================================
 
 ;; Olivetti — centered writing
-(when (maybe-require-package 'olivetti)
-  (add-hook 'org-mode-hook 'olivetti-mode)
-  (add-hook 'markdown-mode-hook 'olivetti-mode)
-  (setq olivetti-body-width 80
-        olivetti-style 'fancy))
+;; (when (maybe-require-package 'olivetti)
+;;   (add-hook 'org-mode-hook 'olivetti-mode)
+;;   (add-hook 'markdown-mode-hook 'olivetti-mode)
+;;   (setq olivetti-body-width 80
+;;         olivetti-style 'body))  ; 'fancy 会用 fringe 背景色做侧边，light 主题下显黑
 
 ;; Enhanced markdown-mode (purcell's is minimal)
 (with-eval-after-load 'markdown-mode
@@ -708,8 +882,8 @@ Skip files under ~/org/collections/ to preserve records."
                (when (memq (process-status proc) '(exit signal))
                  (let ((code (process-exit-status proc)))
                    (message
-                    (if (eq code 0)
-                        /(format "arya-sync: %s done" mode-arg)
+                     (if (eq code 0)
+                         (format "arya-sync: %s done" mode-arg)
                         (format "arya-sync failed (%s). See %s" code arya-sync--buffer-name)))))))))))
 
 (defun arya-sync-pull-now ()
@@ -742,6 +916,52 @@ Skip files under ~/org/collections/ to preserve records."
   (add-hook 'after-save-hook #'arya-sync-after-save-hook))
 
 ;; ============================================================
+;; 13. Chinese calendar (cal-china-x)
+;; ============================================================
+
+(when (maybe-require-package 'cal-china-x)
+  (with-eval-after-load 'calendar
+    (require 'cal-china-x)
+    (setq calendar-mark-holidays-flag t)
+    (setq cal-china-x-important-holidays cal-china-x-chinese-holidays)
+    (setq calendar-holidays
+          (append cal-china-x-important-holidays
+                  cal-china-x-general-holidays)))
+  ;; 让 org-agenda 显示农历节日和 diary 里的农历生日
+  (setq org-agenda-include-diary t))
+
+;; ============================================================
+;; Journal — open today's file on startup
+;; ============================================================
+
+(defun my/journal-effective-date ()
+  "Return the effective date for journalling.
+Before 03:00 we still consider it the previous calendar day."
+  (let* ((now  (decode-time))
+         (hour (nth 2 now)))
+    (if (< hour 3)
+        (decode-time (time-subtract (current-time) (seconds-to-time 86400)))
+      now)))
+
+(defun my/open-today-journal ()
+  "Open (or create) today's journal file."
+  (interactive)
+  (let* ((dt   (my/journal-effective-date))
+         (name (format-time-string "%Y-%m-%d.org" (encode-time dt)))
+         (file (expand-file-name (concat "journal/" name) "~/org")))
+    (unless (file-exists-p file)
+      (with-temp-file file
+        (insert (format "#+title: %s\n#+filetags: :journal:\n"
+                        (format-time-string "%Y-%m-%d" (encode-time dt))))))
+    (find-file file)))
+
+;; window-setup-hook fires after desktop restore — journal always wins
+;; 用 run-with-idle-timer 确保在所有 after-init 钩子（含主题、desktop等）之后执行
+(add-hook 'emacs-startup-hook
+          (lambda ()
+            (run-with-idle-timer 0.1 nil #'my/open-today-journal)))
+
+;; ============================================================
 ;; Startup message
 ;; ============================================================
 
@@ -751,3 +971,59 @@ Skip files under ~/org/collections/ to preserve records."
 
 (provide 'init-local)
 ;;; init-local.el ends here
+
+;; ============================================================
+;;  10. Elfeed and Elfeed-org
+;; ============================================================
+(when (and (maybe-require-package 'elfeed)
+           (maybe-require-package 'elfeed-org))
+  (require 'elfeed)
+  (require 'elfeed-org)
+
+  ;; Initialize elfeed-org
+  (elfeed-org)
+
+  ;; Specify the org file for elfeed-org
+  (setq rmh-elfeed-org-files (list (expand-file-name "~/org/collections/elfeed.org")))
+
+  ;; Default filter
+  (setq-default elfeed-search-filter "@1-month-ago +unread")
+
+  ;; Optional keybinding to start elfeed
+  (global-set-key (kbd "C-c w e") 'elfeed)
+
+  ;; Auto update when opening elfeed
+  (add-hook 'elfeed-search-mode-hook #'elfeed-update)
+
+  ;; Fix Windows MSYS2 curl limits
+  (setq elfeed-curl-max-connections 4)
+
+  ;; Use fixed-pitch (monospace) fonts for HTML rendering in Elfeed.
+  ;; This prevents jagged fallback fonts and uneven spacing in Chinese.
+  (add-hook 'elfeed-show-mode-hook (lambda () (setq-local shr-use-fonts nil))))
+
+
+;; ============================================================
+;;  11. Elfeed mpv Integration
+;; ============================================================
+
+(defun my/elfeed-play-with-mpv ()
+  "Play the current elfeed entry link with mpv."
+  (interactive)
+  (let ((link (if (derived-mode-p 'elfeed-show-mode)
+                  (elfeed-entry-link elfeed-show-entry)
+                (let ((entries (elfeed-search-selected)))
+                  (when entries
+                    (elfeed-entry-link (car entries)))))))
+    (if link
+        (progn
+          (message "Starting mpv for %s..." link)
+          (start-process "elfeed-mpv" nil "mpv" link)
+          (when (derived-mode-p 'elfeed-search-mode)
+            (elfeed-search-untag-all-unread)))
+      (message "No link found."))))
+
+(with-eval-after-load 'elfeed
+  (define-key elfeed-search-mode-map (kbd "v") #'my/elfeed-play-with-mpv)
+  (define-key elfeed-show-mode-map (kbd "v") #'my/elfeed-play-with-mpv))
+

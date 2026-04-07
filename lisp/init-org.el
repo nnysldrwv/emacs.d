@@ -49,7 +49,12 @@
       org-fast-tag-selection-single-key 'expert
       org-html-validation-link nil
       org-export-kill-product-buffer-when-displayed t
-      org-tags-column 80)
+      org-tags-column 80
+      ;; 代码块语法高亮（org-modern 需要）
+      org-src-fontify-natively t
+      org-src-tab-acts-natively t
+      ;; 启用缩进模式，配合 org-modern-indent 对齐块边框
+      org-startup-indented t)
 
 
 ;; Lots of stuff from http://doc.norang.ca/org-mode.html
@@ -182,7 +187,9 @@ typical word processor."
 
 (let ((active-project-match '(car org-stuck-projects)))
 
-  (setq org-agenda-compact-blocks t
+  (setq org-agenda-skip-additional-timestamps-in-entry t
+        org-agenda-skip-deadline-prewarning-if-scheduled t
+        org-agenda-compact-blocks t
         org-agenda-sticky t
         org-agenda-start-on-weekday nil
         org-agenda-span 'day
@@ -193,6 +200,16 @@ typical word processor."
           (tags category-up effort-up)
           (search category-up))
         org-agenda-window-setup 'current-window
+        org-agenda-prefix-format
+        '((agenda . " %i %-12:c%?-12t% s")
+          (todo   . " %i %-12:c%s")
+          (tags   . " %i %-12:c%s")
+          (search . " %i %-12:c"))
+        org-agenda-time-grid
+        '((daily require-timed)
+          (800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000)
+          "......"
+          "----------------")
         org-agenda-custom-commands
         `(("N" "Notes" tags "NOTE"
            ((org-agenda-overriding-header "Notes")
@@ -207,17 +224,18 @@ typical word processor."
                     (org-agenda-tags-todo-honor-ignore-options t)
                     (org-tags-match-list-sublevels t)
                     (org-agenda-todo-ignore-scheduled 'future)))
-            (tags-todo "-INBOX"
-                       ((org-agenda-overriding-header "Next Actions")
-                        (org-agenda-tags-todo-honor-ignore-options t)
-                        (org-agenda-todo-ignore-scheduled 'future)
-                        (org-agenda-skip-function
-                         '(lambda ()
-                            (or (org-agenda-skip-subtree-if 'todo '("HOLD" "WAITING"))
-                                (org-agenda-skip-entry-if 'nottodo '("NEXT")))))
-                        (org-tags-match-list-sublevels t)
-                        (org-agenda-sorting-strategy
-                         '(todo-state-down effort-up category-keep))))
+             (tags-todo "-INBOX"
+                        ((org-agenda-overriding-header "Next Actions")
+                         (org-agenda-tags-todo-honor-ignore-options t)
+                         (org-agenda-todo-ignore-scheduled 'future)
+                         (org-agenda-skip-function
+                          '(lambda ()
+                             (or (org-agenda-skip-subtree-if 'todo '("HOLD" "WAITING"))
+                                 (org-agenda-skip-entry-if 'nottodo '("NEXT")))))
+                         (org-tags-match-list-sublevels t)
+                         (org-agenda-prefix-format " %-12:c %(let ((s (org-entry-get nil \"SCHEDULED\"))) (if s (concat \"[\" (format-time-string \"%m-%d %H:%M\" (org-time-string-to-time s)) \"] \") \"          \"))")
+                         (org-agenda-sorting-strategy
+                          '(todo-state-down effort-up category-keep))))
             (tags-todo ,active-project-match
                        ((org-agenda-overriding-header "Projects")
                         (org-tags-match-list-sublevels t)
@@ -332,6 +350,158 @@ typical word processor."
   (define-key org-agenda-mode-map (kbd "P") 'org-pomodoro))
 
 
+;;; org-appear: show emphasis markers when cursor is inside them
+;; already installed in elpa-30.2, just needs to be enabled
+(when (maybe-require-package 'org-appear)
+  (add-hook 'org-mode-hook 'org-appear-mode)
+  (setq org-appear-autolinks t
+        org-appear-autosubmarkers t
+        org-appear-autoentities t))
+
+
+;;; org-autolist: smart list continuation in org-mode
+;; The package uses defadvice which doesn't work reliably in Emacs 30.
+;; We load it for the minor mode definition, but replace the two broken
+;; advices with modern advice-add equivalents.
+(when (maybe-require-package 'org-autolist)
+  ;; Patch: re-implement the two defadvice hooks using advice-add
+  (with-eval-after-load 'org-autolist
+    ;; Remove the broken defadvice-based activations from the minor mode
+    (advice-add 'org-autolist-mode :after
+                (lambda (&rest _)
+                  ;; org-return replacement
+                  (if org-autolist-mode
+                      (progn
+                        (advice-add 'org-return :around #'sanityinc/org-autolist-return)
+                        (advice-add 'org-delete-backward-char :around #'sanityinc/org-autolist-delete-backward-char))
+                    (advice-remove 'org-return #'sanityinc/org-autolist-return)
+                    (advice-remove 'org-delete-backward-char #'sanityinc/org-autolist-delete-backward-char)))))
+
+  (with-eval-after-load 'org
+    (defun sanityinc/org-autolist-return (orig-fn &rest args)
+      "advice-add replacement for org-autolist's org-return advice."
+      (let* ((el (org-element-at-point))
+             (parent (plist-get (cadr el) :parent))
+             (is-listitem (or (org-at-item-p)
+                              (and (eq 'paragraph (car el))
+                                   (eq 'item (car parent)))))
+             (is-checkbox (plist-get (cadr parent) :checkbox)))
+        (if (and is-listitem
+                 (not (and org-return-follows-link
+                           (eq 'org-link (get-text-property (point) 'face)))))
+            (if (and (eolp)
+                     (org-at-item-p)
+                     (<= (point) (org-autolist-beginning-of-item-after-bullet)))
+                (condition-case nil
+                    (call-interactively 'org-outdent-item)
+                  (error (delete-region (line-beginning-position)
+                                        (line-end-position))))
+              (cond
+               (is-checkbox (org-insert-todo-heading nil))
+               ((and (org-at-item-description-p)
+                     (> (point) (org-autolist-beginning-of-item-after-bullet))
+                     (< (point) (line-end-position)))
+                (newline))
+               (t (org-meta-return))))
+          (apply orig-fn args))))
+
+    (defun sanityinc/org-autolist-delete-backward-char (orig-fn &rest args)
+      "advice-add replacement for org-autolist's org-delete-backward-char advice."
+      (if (and org-autolist-enable-delete
+               (org-at-item-p)
+               (<= (point) (org-autolist-beginning-of-item-after-bullet)))
+          (if (org-previous-line-empty-p)
+              (delete-region (line-beginning-position)
+                             (save-excursion (forward-line -1)
+                                             (line-beginning-position)))
+            (progn
+              (goto-char (org-autolist-beginning-of-item-after-bullet))
+              (cond
+               ((= 1 (line-number-at-pos))
+                (delete-region (point) (line-beginning-position)))
+               ((org-autolist-at-empty-item-description-p)
+                (delete-region (line-end-position)
+                               (save-excursion (forward-line -1)
+                                               (line-end-position))))
+               (t
+                (delete-region (point)
+                               (save-excursion (forward-line -1)
+                                               (line-end-position)))))))
+        (apply orig-fn args))))
+
+  (add-hook 'org-mode-hook 'org-autolist-mode))
+
+
+;;; org-modern: modern styling for org-mode (headings, blocks, tables, etc.)
+(when (maybe-require-package 'org-modern)
+  ;; 确保在 org-modern 渲染前设定全局默认值
+  (setq-default
+   ;; 1. 标题符号：箭头 + 菱形
+   ;; 适配最新版 org-modern API
+   org-modern-star 'replace
+   org-modern-replace-stars '("▶" "▷" "◆" "◇" "◈")
+   org-modern-hide-stars nil  ; 开启 org-indent 时设为 nil 避免冲突
+   org-modern-list '((45 . "•") (43 . "◦") (42 . "▪"))
+
+   ;; 2. TODO 关键词胶囊配色（浅色主题适用：柔和背景 + 深色文字）
+   org-modern-todo t
+   org-modern-todo-faces
+   '(("TODO"      :background "#dbeafe" :foreground "#0369a1" :weight bold)  ; 浅蓝底 深蓝字
+     ("NEXT"      :background "#fee2e2" :foreground "#b91c1c" :weight bold)  ; 浅红底 深红字
+     ("WAITING"   :background "#fef08a" :foreground "#a16207" :weight bold)  ; 浅黄底 深黄字
+     ("HOLD"      :background "#e5e7eb" :foreground "#4b5563" :weight bold)  ; 浅灰底 中灰字
+     ("DONE"      :background "#dcfce7" :foreground "#15803d" :weight bold)  ; 浅绿底 深绿字
+     ("CANCELLED" :background "#f3f4f6" :foreground "#9ca3af" :weight bold)) ; 极浅灰 浅灰字
+
+   ;; 3. 优先级胶囊配色（浅色主题适用：柔和色系）
+   org-modern-priority t
+   org-modern-priority-faces
+   '((?A :background "#fee2e2" :foreground "#b91c1c" :weight bold)
+     (?B :background "#ffedd5" :foreground "#c2410c" :weight bold)
+     (?C :background "#dcfce7" :foreground "#15803d" :weight bold))
+
+   ;; 4. 代码块标头：加 ▶ / ◀ 前缀
+   org-modern-block-name
+   '(("src"     . ("▶ " " ◀"))
+     ("example" . ("▶ " " ◀"))
+     ("quote"   . ("❝ " " ❞"))
+     ("verse"   . ("❝ " " ❞"))
+     ("comment" . ("# " "  ")))
+
+   ;; 6. 标签胶囊样式（浅色主题适用：柔和背景 + 深色文字）
+   org-modern-tag t
+   org-modern-tag-faces
+   '(("work"     :background "#e0f2fe" :foreground "#0369a1" :weight bold)
+     ("personal" :background "#dcfce7" :foreground "#15803d" :weight bold)
+     ("learning" :background "#fef08a" :foreground "#b45309" :weight bold)
+     ("Project_S" :background "#f3e8ff" :foreground "#7e22ce" :weight bold)  ; 浅紫底 紫字
+     ("emacs"    :background "#ffedd5" :foreground "#c2410c" :weight bold)  ; 浅橙底 橙字
+     ("AI"       :background "#ecfeff" :foreground "#0f766e" :weight bold)) ; 浅青底 青字
+
+   ;; 7. 表格美化
+   org-modern-table t
+
+   ;; 其余保持不变
+   org-modern-keyword t
+   org-modern-checkbox '((?X . "☑") (?- . "◐") (?\s . "☐"))
+   org-modern-block-fringe nil)
+
+  ;; 调整 block 名称字体颜色，避免在浅色背景下看不清
+  (custom-set-faces
+   '(org-modern-block-name ((t (:foreground "#4b5563" :background "#f3f4f6" :weight bold)))))
+
+  (add-hook 'org-mode-hook #'org-modern-mode)
+  (add-hook 'org-agenda-finalize-hook #'org-modern-agenda))
+
+;;; org-modern-indent: fix bullet alignment when org-indent-mode + org-modern are both active
+;; Not on MELPA; install from GitHub via package-vc (Emacs 29+)
+(when (fboundp 'package-vc-install)
+  (unless (package-installed-p 'org-modern-indent)
+    (package-vc-install "https://github.com/jdtsmith/org-modern-indent"))
+  (with-eval-after-load 'org-modern
+    (add-hook 'org-modern-mode-hook #'org-modern-indent-mode)))
+
+
 ;; ;; Show iCal calendars in the org agenda
 ;; (when (and *is-a-mac* (require 'org-mac-iCal nil t))
 ;;   (setq org-agenda-include-diary t
@@ -384,6 +554,34 @@ typical word processor."
       (sql . t)
       (sqlite . t)))))
 
+
+;;; org-journal
+
+(when (maybe-require-package 'org-journal)
+  (setq org-journal-dir "~/org/journal/"
+        ;; 每天一个文件，文件名格式与现有文件一致：2026-04-07.org
+        org-journal-file-type 'daily
+        org-journal-file-format "%Y-%m-%d.org"
+        ;; 条目 heading 只用时间，不加额外前缀
+        org-journal-date-format "%Y-%m-%d"
+        org-journal-time-format "%H:%M"
+        ;; 文件头与现有格式一致
+        org-journal-file-header "#+title: %Y-%m-%d\n#+filetags: :journal:\n"
+        ;; 加入 org-agenda
+        org-journal-enable-agenda-integration t)
+
+  ;; journal 目录下的文件自动激活 org-journal-mode
+  (add-to-list 'auto-mode-alist
+               `(,(concat (regexp-quote (expand-file-name org-journal-dir)) ".*\\.org\\'")
+                 . org-journal-mode))
+
+  ;; 快捷键：C-c j j 打开今天，C-c j y 打开昨天，C-c j s 搜索
+  (with-eval-after-load 'org-journal
+    (define-key global-map (kbd "C-c j j") 'org-journal-new-entry)
+    (define-key global-map (kbd "C-c j y")
+      (lambda () (interactive)
+        (org-journal-new-entry nil (time-subtract (current-time) (days-to-time 1)))))
+    (define-key global-map (kbd "C-c j s") 'org-journal-search)))
 
 (provide 'init-org)
 ;;; init-org.el ends here
