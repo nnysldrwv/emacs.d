@@ -15,8 +15,10 @@
 ;; Compiled .eln files will be cached after first run; subsequent startups are fast.
 (setq native-comp-jit-compilation nil)
 (setq native-comp-async-jobs-number 1)
+(setq inhibit-automatic-native-compilation t)
 (add-hook 'emacs-startup-hook
           (lambda ()
+            (setq inhibit-automatic-native-compilation nil)
             (setq native-comp-jit-compilation t)
             (setq native-comp-async-jobs-number 2)))
 
