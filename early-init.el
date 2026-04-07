@@ -10,8 +10,15 @@
 
 (setq package-enable-at-startup nil)
 
-;; ---- native-comp: limit parallelism to avoid "Too many open files" ----
-(setq native-comp-async-jobs-number 2)
+;; ---- native-comp: defer all JIT compilation to after startup ----
+;; Prevents "Too many open files" on first launch (Windows pipe limit).
+;; Compiled .eln files will be cached after first run; subsequent startups are fast.
+(setq native-comp-jit-compilation nil)
+(setq native-comp-async-jobs-number 1)
+(add-hook 'emacs-startup-hook
+          (lambda ()
+            (setq native-comp-jit-compilation t)
+            (setq native-comp-async-jobs-number 2)))
 
 ;; ---- Performance: suppress GUI work during init ----
 (setq frame-inhibit-implied-resize t)  ; don't resize frame for font changes
