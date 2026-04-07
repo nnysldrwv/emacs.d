@@ -980,6 +980,9 @@ Before 03:00 we still consider it the previous calendar day."
   (require 'elfeed)
   (require 'elfeed-org)
 
+  ;; Set Elfeed DB path to Org collections for Git syncing
+  (setq elfeed-db-directory (expand-file-name "~/org/collections/.elfeed"))
+
   ;; Initialize elfeed-org
   (elfeed-org)
 
