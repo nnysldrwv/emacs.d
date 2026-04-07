@@ -10,6 +10,9 @@
 
 (setq package-enable-at-startup nil)
 
+;; ---- native-comp: limit parallelism to avoid "Too many open files" ----
+(setq native-comp-async-jobs-number 2)
+
 ;; ---- Performance: suppress GUI work during init ----
 (setq frame-inhibit-implied-resize t)  ; don't resize frame for font changes
 (push '(menu-bar-lines . 0) default-frame-alist)

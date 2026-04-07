@@ -67,8 +67,6 @@ locate PACKAGE."
 
 (setq package-enable-at-startup nil)
 (setq package-native-compile t)
-;; Limit native-comp parallelism to avoid "Too many open files" on first launch
-(setq native-comp-async-jobs-number 2)
 (package-initialize)
 
 
