@@ -37,14 +37,20 @@ When called from `after-make-frame-functions', FRAME is the new frame."
       (when vp-font
         (set-face-attribute 'variable-pitch nil :family vp-font)))
 
-    ;; CJK fallback — explicit mapping for better rendering
+    ;; CJK fallback — use a dedicated CJK font for sharper Chinese rendering.
+    ;; Maple Mono's built-in CJK glyphs are thin and look blurry at small sizes on Windows.
     (let ((cjk-font (my/first-available-font
-                     '("霞鹜文楷等宽" "等距更纱黑体 SC"
-                       "LXGW WenKai Mono" "Sarasa Mono SC"
-                       "Noto Sans SC" "Microsoft YaHei UI"))))
+                     '("等距更纱黑体 SC" "Sarasa Mono SC"
+                       "霞鹜文楷等宽" "LXGW WenKai Mono"
+                       "Microsoft YaHei UI" "Microsoft YaHei"
+                       "Noto Sans SC"))))
       (when cjk-font
         (dolist (charset '(kana han cjk-misc bopomofo))
-          (set-fontset-font t charset (font-spec :family cjk-font) nil 'prepend))))
+          (set-fontset-font t charset (font-spec :family cjk-font) nil 'prepend))
+        ;; Keep rescale at 1.0 for comfortable CJK reading size.
+        ;; Tag alignment in org-agenda handled by pixel-based hook below.
+        (setq face-font-rescale-alist
+              (list (cons (regexp-quote cjk-font) 1.0)))))
 
     ;; Emoji & Symbol
     (let ((emoji-font (my/first-available-font
@@ -68,8 +74,10 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 ;;  2. General overrides + Windows performance tuning
 ;; ============================================================
 
-;; Light theme (override purcell's default dark theme)
-(setq-default custom-enabled-themes '(tsdh-light))
+;; Theme: tsdh-light for GUI, modus-vivendi (dark) for terminal
+(if (display-graphic-p)
+    (setq-default custom-enabled-themes '(tsdh-light))
+  (setq-default custom-enabled-themes '(modus-vivendi)))
 
 (setq system-time-locale "C")
 
@@ -224,7 +232,17 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 (with-eval-after-load 'consult
   (global-set-key (kbd "C-s") 'consult-line)
   (global-set-key (kbd "C-x C-r") 'consult-recent-file)
-  (global-set-key (kbd "M-s f") 'consult-find))
+  (global-set-key (kbd "M-s f") 'consult-fd)
+  ;; fd: include hidden files/dirs (e.g. .calendar/)
+  (setq consult-fd-args '((if (executable-find "fdfind" 'remote) "fdfind" "fd")
+                           "--full-path --color=never --hidden"))
+
+  ;; rg search in org notebook (C-c n s)
+  (defun my/org-rg-search ()
+    "Ripgrep search all files in `org-directory'."
+    (interactive)
+    (consult-ripgrep (expand-file-name org-directory)))
+  (global-set-key (kbd "C-c n s") #'my/org-rg-search))
 
 ;; ============================================================
 ;;  6. Org-mode — override purcell defaults with Sean's workflow
@@ -243,6 +261,13 @@ When called from `after-make-frame-functions', FRAME is the new frame."
 (with-eval-after-load 'org
   ;; org-tempo：启用 <s Tab 等结构模板
   (require 'org-tempo)
+
+  ;; org-habit：在 agenda 中显示 habit 连续打卡条
+  (require 'org-habit)
+  (setq org-habit-graph-column 50           ; 打卡条起始列（避免挤标题）
+        org-habit-preceding-days 21         ; 往前显示 21 天
+        org-habit-following-days 7          ; 往后显示 7 天
+        org-habit-show-habits-only-for-today nil) ; 周视图也显示 habit
 
   ;; 关掉 ispell，避免 "No plain word-list" 报错
   (setq ispell-program-name nil)
@@ -281,11 +306,15 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   (setq image-use-external-converter t)
   (setq org-image-actual-width '(600))
 
-  ;; Agenda files
+  ;; Agenda files — 用目录路径，新 .org 文件自动纳入
+  ;; 禁止 customize/C-c [ 把文件级列表写入 custom.el 覆盖此配置
+  (put 'org-agenda-files 'saved-value nil)
+  (put 'org-agenda-files 'customized-value nil)
   (setq org-agenda-files '("~/org/inbox.org"
                            "~/org/projects/"
                            "~/org/areas/"
-                           "~/org/.calendar"))
+                           "~/org/.calendar"
+                           "~/org/journal/"))
   (setq org-default-notes-file "~/org/inbox.org")
 
   ;; Archive
@@ -293,33 +322,82 @@ When called from `after-make-frame-functions', FRAME is the new frame."
         (concat (expand-file-name ".archive/" org-directory)
                 "%s_archive.org::"))
 
-  ;; ---- Capture templates ----
-  (defun my/journal-file-today ()
-    "Return today's journal file path: ~/org/journal/YYYY-MM-DD.org."
-    (let* ((date-str (format-time-string "%Y-%m-%d"))
-           (file (expand-file-name (concat "journal/" date-str ".org") org-directory)))
-      (unless (file-exists-p file)
-        (with-temp-file file
-          (insert (format "#+title: %s\n#+filetags: :journal:\n\n" date-str))))
-      file))
+  ;; ---- Append Note helper: append to bottom, manage date separator ----
+  (defun my/append-note-goto-bottom ()
+    "Move point to end of append-note.org.
+If today's date separator doesn't exist yet, insert it first."
+    (let ((today-sep (format-time-string "-- %Y-%m-%d --")))
+      (goto-char (point-max))
+      (unless (save-excursion
+                (goto-char (point-min))
+                (search-forward today-sep nil t))
+        ;; Insert today's separator at the end
+        (unless (bolp) (insert "\n"))
+        (insert "\n" today-sep "\n")))
+    (goto-char (point-max)))
 
+  ;; ---- Habit capture helper ----
+  (defun my/org-capture-habit ()
+    "Generate a capture template for a habit with selectable repeat interval."
+    (let* ((name (read-string "Habit 名称: "))
+           (raw  (read-string "提醒时间 (HH:MM): "))
+           (repeat (completing-read "重复周期: "
+                                    '(".+1d  — 每天（从完成日起）"
+                                      ".+2d  — 每2天"
+                                      ".+1w  — 每周"
+                                      ".+2w  — 每2周"
+                                      ".+1m  — 每月"
+                                      "++1d  — 每天（固定日期）"
+                                      "++1w  — 每周（固定星期）"
+                                      ".+1d/2d — 每天，最多隔2天"
+                                      ".+1d/3d — 每天，最多隔3天")
+                                    nil t))
+           (repeat-val (car (split-string repeat " ")))
+           (parts (split-string raw ":"))
+           (hour (string-to-number (nth 0 parts)))
+           (min  (string-to-number (nth 1 parts)))
+           (time (format "%02d:%02d" hour min))
+           (today (format-time-string "%Y-%m-%d %a"))
+           ;; 结束时间 = 开始 +5 分钟
+           (end-min (+ min 5))
+           (end-hour (+ hour (/ end-min 60)))
+           (end-time (format "%02d:%02d" end-hour (% end-min 60))))
+      (format "* TODO %s\nSCHEDULED: <%s %s %s>\n:PROPERTIES:\n:STYLE:    habit\n:calendar-id: yuanxiang424@gmail.com\n:END:\n:org-gcal:\n<%s %s-%s>\n:END:\n"
+              name today time repeat-val today time end-time)))
+
+  ;; ---- Capture templates ----
   (setq org-capture-templates
-        '(("i" "Inbox" entry (file "~/org/inbox.org")
+        '(("a" "Append Note" plain
+           (file+function "~/org/append-note.org" my/append-note-goto-bottom)
+           "- %?"
+           :empty-lines 1 :jump-to-captured t)
+          ("i" "Inbox" entry (file "~/org/inbox.org")
            "* %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :empty-lines 1)
           ("t" "Task" entry (file "~/org/inbox.org")
            "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :empty-lines 1)
-          ("j" "Journal" plain (file my/journal-file-today)
-           "* %<%H:%M>\n%?"
-           :empty-lines 1
-           :jump-to-captured t)
-          ("r" "Read later" entry (file "~/org/inbox.org")
+          ("j" "Journal" plain
+           (file (lambda ()
+                   (let* ((now  (decode-time))
+                          (hour (nth 2 now))
+                          (time (if (< hour 3)
+                                    (time-subtract (current-time) (seconds-to-time 86400))
+                                  (current-time))))
+                     (expand-file-name
+                      (format-time-string org-journal-file-format time)
+                      org-journal-dir))))
+           "* %(format-time-string \"%H:%M\")\n%?"
+           :empty-lines 1 :jump-to-captured t)
+          ("r" "r · 稍后读 [inbox]" entry (file "~/org/inbox.org")
            "* TODO [[%^{URL}][%^{Title}]]\n:PROPERTIES:\n:CREATED: %U\n:END:\n%?" :empty-lines 1)
           ("m" "Movie" entry (file+headline "~/org/collections/media.org" "观影记录")
            "* %^{片名}\n:PROPERTIES:\n:评分: %^{评分|⭐⭐⭐|⭐⭐⭐⭐|⭐⭐⭐⭐⭐|⭐⭐|⭐}\n:END:\n%U\n%?"
            :empty-lines 1)
-          ("w" "Web article" plain (function my/capture-web-article-target)
+          ("w" "w · 精读笔记 [ref/]" plain (function my/capture-web-article-target)
            "%?"
            :empty-lines 1 :jump-to-captured t)
+          ("h" "Habit" entry (file "~/org/areas/habits.org")
+           (function my/org-capture-habit)
+           :empty-lines 1)
 
           ;; ---- org-protocol captures (triggered from browser bookmark) ----
           ;; "pl" = 阅读列表：存到 inbox，标 TODO，一键完成
@@ -360,52 +438,68 @@ When called from `after-make-frame-functions', FRAME is the new frame."
   ;; Tags (mutually exclusive group): work | personal | learning
   (setq org-stuck-projects '("" nil nil ""))
 
+  (defun my/skip-habit ()
+    "Skip entries with :STYLE: habit property."
+    (let ((subtree-end (save-excursion (org-end-of-subtree t))))
+      (when (string= (org-entry-get nil "STYLE") "habit")
+        subtree-end)))
+
   (setq org-agenda-custom-commands
-        '(("g" "GTD"
+        '(;; ── d · Daily Focus ──────────────────────────────
+          ;; 今天要干什么？最干净的每日视图
+          ("d" "Daily"
+           ((agenda "" ((org-agenda-span 'day)
+                        (org-deadline-warning-days 3)
+                        (org-agenda-skip-scheduled-if-done t)))
+            (todo "NEXT"
+                  ((org-agenda-overriding-header "⚡ Next Actions")
+                   (org-agenda-skip-function 'my/skip-habit)
+                   (org-agenda-sorting-strategy '(priority-down category-keep))))
+            (todo "WAITING"
+                  ((org-agenda-overriding-header "⏳ Waiting (FYI)")
+                   (org-agenda-sorting-strategy '(category-keep))))))
+
+          ;; ── w · Weekly Overview ──────────────────────────
+          ;; 这周全貌，按领域分组，周初规划 / 周末回顾
+          ("w" "Weekly"
+           ((agenda "" ((org-agenda-span 'week)
+                        (org-deadline-warning-days 7)
+                        (org-habit-show-habits nil)))
+            (tags-todo "+work"
+                       ((org-agenda-overriding-header "🏢 Work")
+                        (org-agenda-skip-function 'my/skip-habit)
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "+personal"
+                       ((org-agenda-overriding-header "🏠 Personal")
+                        (org-agenda-skip-function 'my/skip-habit)
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "+learning"
+                       ((org-agenda-overriding-header "📚 Learning")
+                        (org-agenda-skip-function 'my/skip-habit)
+                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
+            (tags-todo "-work-personal-learning"
+                       ((org-agenda-overriding-header "📦 Untagged")
+                        (org-agenda-skip-function 'my/skip-habit)
+                        (org-agenda-sorting-strategy '(todo-state-down category-keep))))))
+
+          ;; ── g · GTD Review ───────────────────────────────
+          ;; 系统全貌，用于周回顾清理积压
+          ("g" "GTD Review"
            ((agenda "" ((org-agenda-span 'day)))
             (todo "NEXT"
                   ((org-agenda-overriding-header "⚡ Next Actions")
+                   (org-agenda-skip-function 'my/skip-habit)
                    (org-agenda-sorting-strategy '(priority-down category-keep))))
             (todo "TODO"
-                  ((org-agenda-overriding-header "📋 Tasks")
-                   (org-agenda-todo-ignore-scheduled 'future)
+                  ((org-agenda-overriding-header "📋 All Tasks (Backlog)")
+                   (org-agenda-skip-function 'my/skip-habit)
                    (org-agenda-sorting-strategy '(tag-up priority-down category-keep))))
             (todo "WAITING"
                   ((org-agenda-overriding-header "⏳ Waiting")
                    (org-agenda-sorting-strategy '(category-keep))))
             (todo "HOLD"
                   ((org-agenda-overriding-header "🧊 On Hold")
-                   (org-agenda-sorting-strategy '(category-keep))))))
-
-          ("d" "Daily"
-           ((agenda "" ((org-agenda-span 'day)
-                        (org-deadline-warning-days 3)))
-            (todo "NEXT"
-                  ((org-agenda-overriding-header "⚡ Next Actions")
-                   (org-agenda-sorting-strategy '(priority-down category-keep))))
-            (todo "TODO"
-                  ((org-agenda-overriding-header "📋 Tasks")
-                   (org-agenda-sorting-strategy '(tag-up priority-down category-keep))))
-            (todo "WAITING"
-                  ((org-agenda-overriding-header "⏳ Waiting (FYI)")
-                   (org-agenda-todo-ignore-scheduled 'future)
-                   (org-agenda-sorting-strategy '(category-keep))))))
-
-          ("w" "Weekly"
-           ((agenda "" ((org-agenda-span 'week)
-                        (org-deadline-warning-days 7)))
-            (tags-todo "work"
-                       ((org-agenda-overriding-header "🏢 Work")
-                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
-            (tags-todo "personal"
-                       ((org-agenda-overriding-header "🏠 Personal")
-                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
-            (tags-todo "learning"
-                       ((org-agenda-overriding-header "📚 Learning")
-                        (org-agenda-sorting-strategy '(todo-state-down priority-down))))
-            (tags-todo "-work-personal-learning"
-                       ((org-agenda-overriding-header "📦 Untagged")
-                        (org-agenda-sorting-strategy '(todo-state-down category-keep))))))))
+                   (org-agenda-sorting-strategy '(category-keep))))))))
 
   ;; ---- Babel image dir ----
   (defun my/org-babel-image-dir ()
@@ -544,6 +638,27 @@ Skip files under ~/org/collections/ to preserve records."
 ;;   (setq org-modern-table nil)
 ;;   (setq org-modern-list '((?- . "•") (?+ . "◦")))
 ;;   (setq org-modern-block-fringe nil))
+
+;; --- Pixel-aligned agenda tags (fix CJK misalignment) ---
+;; When CJK font is narrower than 2×ASCII, column-based alignment breaks.
+;; This hook uses display properties to pixel-align tags to the right edge.
+(defun my/org-agenda-align-tags-pixel ()
+  "Right-align agenda tags using pixel-based display alignment.
+Works correctly regardless of CJK/ASCII width ratio."
+  (let ((inhibit-read-only t)
+        (target-pixel (- (window-text-width nil t)
+                         (* 2 (string-pixel-width " ")))))  ; 2 char right margin
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "\\([ \t]+\\)\\(:[[:alnum:]_@#%:]+:\\)[ \t]*$" nil t)
+        (let* ((tags-str (match-string 2))
+               (tags-pixel (string-pixel-width tags-str))
+               (align-to (- target-pixel tags-pixel)))
+          (when (> align-to 0)
+            (put-text-property (match-beginning 1) (match-end 1)
+                               'display `(space :align-to (,align-to)))))))))
+
+(add-hook 'org-agenda-finalize-hook #'my/org-agenda-align-tags-pixel)
 
 ;; --- org-appear ---
 (when (maybe-require-package 'org-appear)
@@ -707,8 +822,56 @@ Skip files under ~/org/collections/ to preserve records."
                    (my/org-gcal-patch-status calendar-id event-id gcal-status))))))
          nil 'file))))
 
-  ;; hook 挂在外面，不依赖 org-gcal 是否已加载
-  (add-hook 'after-save-hook #'my/org-gcal-auto-post)
+  ;; NOTE: 不再在 after-save-hook 自动推送 GCal。
+  ;; org-gcal-post-at-point 是同步网络调用，会阻塞 Emacs。
+  ;; 改为依赖：
+  ;;   1. 已有的 900s 定时 org-gcal-sync（见下方 with-eval-after-load）
+  ;;   2. 手动 C-c g s (org-gcal-sync) 或 C-c g p (push 当前 entry)
+  ;; (add-hook 'after-save-hook #'my/org-gcal-auto-post)  ; DISABLED
+
+  ;; 手动推送当前 entry 的快捷键
+  (global-set-key (kbd "C-c g p") #'my/org-gcal-auto-post)
+
+  ;; ── 去重：fetch 后把 gcal.org 中已在其它文件管理的 entry 删掉 ──
+  (defun my/org-gcal-dedup-after-fetch ()
+    "Remove entries from gcal fetch files that are already managed
+in other org files (e.g. inbox.org with org-gcal-managed: org).
+This prevents duplicate :entry-id: warnings."
+    (let ((fetch-files (mapcar #'cdr org-gcal-fetch-file-alist))
+          (known-ids (make-hash-table :test #'equal)))
+      ;; 1. 收集非 fetch-file 中所有 entry-id
+      (dolist (file (org-agenda-files t))
+        (unless (member (expand-file-name file) (mapcar #'expand-file-name fetch-files))
+          (when (file-exists-p file)
+            (with-temp-buffer
+              (insert-file-contents file)
+              (goto-char (point-min))
+              (while (re-search-forward "^[ \t]*:entry-id:[ \t]+\\(.+\\)" nil t)
+                (puthash (string-trim (match-string 1)) file known-ids))))))
+      ;; 2. 从每个 fetch-file 中删除重复 entry
+      (dolist (fetch-file fetch-files)
+        (let ((fpath (expand-file-name fetch-file)))
+          (when (file-exists-p fpath)
+            (with-current-buffer (find-file-noselect fpath)
+              (org-with-wide-buffer
+               (goto-char (point-min))
+               (let ((kill-list nil))
+                 (org-map-entries
+                  (lambda ()
+                    (let ((eid (org-entry-get nil "entry-id")))
+                      (when (and eid (gethash eid known-ids))
+                        (push (point) kill-list)))))
+                 (when kill-list
+                   ;; 从后往前删，避免位置偏移
+                   (dolist (pos (sort kill-list #'>))
+                     (goto-char pos)
+                     (org-cut-subtree))
+                   (save-buffer)
+                   (message "org-gcal dedup: removed %d duplicate(s) from %s"
+                            (length kill-list) fetch-file))))))))))
+
+  (advice-add 'org-gcal-fetch :after
+              (lambda (&rest _) (run-with-idle-timer 5 nil #'my/org-gcal-dedup-after-fetch)))
 
   ;; 定时双向同步（org-gcal 加载后再启动定时器）
   (with-eval-after-load 'org-gcal
@@ -927,39 +1090,72 @@ URL and title come from org-protocol plist (%:link / %:description)."
     (setq calendar-holidays
           (append cal-china-x-important-holidays
                   cal-china-x-general-holidays)))
+  ;; 确保 org-agenda 处理 %%() sexp 前，diary-chinese-anniversary 已定义
+  ;; diary-chinese-anniversary 定义在内置 cal-china.el 中（不是 cal-china-x）
+  ;; org-agenda-get-sexps 在 diary-list-entries 之前执行，
+  ;; 必须提前加载 cal-china 才能让 %%() sexp 正确求值
+  (with-eval-after-load 'org
+    (require 'calendar)
+    (require 'cal-china))
   ;; 让 org-agenda 显示农历节日和 diary 里的农历生日
   (setq org-agenda-include-diary t))
 
 ;; ============================================================
-;; Journal — open today's file on startup
+;; Journal — org-journal
 ;; ============================================================
 
-(defun my/journal-effective-date ()
-  "Return the effective date for journalling.
-Before 03:00 we still consider it the previous calendar day."
-  (let* ((now  (decode-time))
-         (hour (nth 2 now)))
-    (if (< hour 3)
-        (decode-time (time-subtract (current-time) (seconds-to-time 86400)))
-      now)))
+(when (maybe-require-package 'org-journal)
+  (setq org-journal-dir "~/org/journal/"
+        org-journal-file-type 'daily
+        org-journal-file-format "%Y-%m-%d.org"
+        org-journal-date-format "%Y-%m-%d"
+        ;; 凌晨3点前算前一天
+        org-journal-start-on-weekday 1
+        org-journal-carryover-items nil)
 
-(defun my/open-today-journal ()
-  "Open (or create) today's journal file."
-  (interactive)
-  (let* ((dt   (my/journal-effective-date))
-         (name (format-time-string "%Y-%m-%d.org" (encode-time dt)))
-         (file (expand-file-name (concat "journal/" name) "~/org")))
-    (unless (file-exists-p file)
-      (with-temp-file file
+  ;; 让 org-journal 的 "j" capture 接入 org-capture
+  (global-set-key (kbd "C-c j j") 'org-journal-new-entry)
+  (global-set-key (kbd "C-c j t") 'org-journal-today)
+
+  ;; 启动时自动打开今日 journal（凌晨3点前算前一天）
+  (defun my/journal-open-today ()
+    "Open today's journal file, creating it with proper headers if new.
+Before 03:00 opens the previous day's file."
+    (let* ((now  (decode-time))
+           (hour (nth 2 now))
+           (time (if (< hour 3)
+                     (time-subtract (current-time) (seconds-to-time 86400))
+                   (current-time)))
+           (file (expand-file-name
+                  (format-time-string org-journal-file-format time)
+                  org-journal-dir))
+           (new-file (not (file-exists-p file))))
+      (find-file file)
+      (when (and new-file (= (buffer-size) 0))
         (insert (format "#+title: %s\n#+filetags: :journal:\n"
-                        (format-time-string "%Y-%m-%d" (encode-time dt))))))
-    (find-file file)))
+                        (format-time-string org-journal-date-format time))))))
 
-;; window-setup-hook fires after desktop restore — journal always wins
-;; 用 run-with-idle-timer 确保在所有 after-init 钩子（含主题、desktop等）之后执行
-(add-hook 'emacs-startup-hook
-          (lambda ()
-            (run-with-idle-timer 0.1 nil #'my/open-today-journal)))
+  (add-hook 'emacs-startup-hook
+            (lambda ()
+              (run-with-idle-timer 0.3 nil #'my/journal-open-today))))
+
+;; ============================================================
+;; Terminal Chinese Input (pyim) — emacs -nw 下 Windows IME 不工作的 workaround
+;; ============================================================
+
+;; Windows Terminal 下 emacs -nw 无法接收 IME 组合输入，
+;; 用 pyim 内置拼音输入法绕过，C-\ 切换开关。
+(unless (display-graphic-p)
+  (when (and (maybe-require-package 'pyim)
+             (maybe-require-package 'pyim-basedict))
+    (require 'pyim)
+    (require 'pyim-basedict)
+    (pyim-basedict-enable)
+    (setq default-input-method "pyim")
+    ;; 全拼，单行候选框（适合终端）
+    (setq pyim-default-scheme 'quanpin)
+    (setq pyim-page-tooltip 'minibuffer)
+    (setq pyim-page-length 5)))
 
 ;; ============================================================
 ;; Startup message
@@ -1005,6 +1201,39 @@ Before 03:00 we still consider it the previous calendar day."
   ;; This prevents jagged fallback fonts and uneven spacing in Chinese.
   (add-hook 'elfeed-show-mode-hook (lambda () (setq-local shr-use-fonts nil))))
 
+
+;; ============================================================
+;;  PowerShell Mode
+;; ============================================================
+
+(when (maybe-require-package 'powershell)
+  (with-eval-after-load 'powershell
+    ;; C-c C-c 运行整个脚本（当前文件）
+    (defun my/powershell-run-file ()
+      "Run the current .ps1 file with pwsh, output in compilation buffer."
+      (interactive)
+      (unless buffer-file-name
+        (user-error "Buffer has no file"))
+      (save-buffer)
+      (compile (format "pwsh -NoProfile -ExecutionPolicy Bypass -File \"%s\""
+                       (expand-file-name buffer-file-name))))
+
+    ;; C-c C-r 运行选中区域（或当前行）
+    (defun my/powershell-run-region ()
+      "Send region (or current line) to an inferior PowerShell shell."
+      (interactive)
+      (let* ((beg (if (use-region-p) (region-beginning) (line-beginning-position)))
+             (end (if (use-region-p) (region-end)       (line-end-position)))
+             (code (buffer-substring-no-properties beg end)))
+        (unless (get-buffer "*PowerShell*")
+          (powershell))
+        (comint-send-string (get-buffer-process "*PowerShell*")
+                            (concat code "\n"))
+        (display-buffer "*PowerShell*")))
+
+    (define-key powershell-mode-map (kbd "C-c C-c") #'my/powershell-run-file)
+    (define-key powershell-mode-map (kbd "C-c C-r") #'my/powershell-run-region)
+    (define-key powershell-mode-map (kbd "C-c C-z") #'powershell)))
 
 ;; ============================================================
 ;;  11. Elfeed mpv Integration
